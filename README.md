@@ -90,6 +90,15 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release -DFFMPEG_ROOT=C:/ffmpeg
 cmake --build build --parallel
 ```
 
+> Do not commit FFmpeg SDK binaries or headers into the repo.
+> Keep FFmpeg as an external dependency and point CMake at it with `FFMPEG_ROOT`.
+>
+> Optionally you can use a local workspace symlink if you want a stable path:
+> ```powershell
+> mklink /D deps\ffmpeg C:\path\to\ffmpeg
+> cmake -B build -DCMAKE_BUILD_TYPE=Release -DFFMPEG_ROOT=%CD%/deps/ffmpeg
+> ```
+
 Install to your CLAP folder:
 ```bash
 cmake --install build

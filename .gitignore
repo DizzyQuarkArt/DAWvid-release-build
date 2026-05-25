@@ -23,6 +23,11 @@ install_manifest*.txt
 # Dependencies (FetchContent)
 build/_deps/
 
+# External FFmpeg packages should not be committed
+deps/ffmpeg-master-latest-win64-gpl-shared/
+deps/ffmpeg-msvc-libs/
+deps/ffmpeg-master-latest-win64-gpl-shared.zip
+
 # IDE
 .vs/
 .vscode/
