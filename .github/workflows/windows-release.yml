@@ -1,0 +1,109 @@
+name: Windows Release Build
+
+# Manual trigger: Actions tab -> "Windows Release Build" -> Run workflow
+on:
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Puts dumpbin.exe and lib.exe on PATH (used to make MSVC import libs).
+      # Runs BEFORE setup-python so the pinned Python stays first on PATH.
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Setup Python (GLAD2 needs Python + jinja2)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: python -m pip install jinja2
+
+      # CMakeLists.txt expects avcodec-62 / avformat-62 / avutil-60 /
+      # swresample-6 / swscale-9 (the FFmpeg 8.x line, same as the DLLs
+      # in the release you downloaded). Do NOT use "master-latest": the
+      # BtbN master builds have moved on to a newer FFmpeg.
+      - name: Download FFmpeg 8.1 (shared, GPL)
+        shell: pwsh
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          New-Item -ItemType Directory -Force -Path deps | Out-Null
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-gpl-shared-8.1.zip"
+          Invoke-WebRequest -Uri $url -OutFile deps/ffmpeg.zip
+          Expand-Archive -Path deps/ffmpeg.zip -DestinationPath deps
+          $root = Get-ChildItem deps -Directory | Where-Object { $_.Name -like 'ffmpeg-*' } | Select-Object -First 1
+          Rename-Item -Path $root.FullName -NewName "ffmpeg"
+          Get-ChildItem deps/ffmpeg/bin
+
+      # CMakeLists.txt looks for MSVC-format import libs in
+      # <FFMPEG_ROOT>/../ffmpeg-msvc-libs so /DELAYLOAD works.
+      - name: Generate MSVC import libs from the FFmpeg DLLs
+        shell: pwsh
+        run: |
+          $bin = "deps/ffmpeg/bin"
+          $out = "deps/ffmpeg-msvc-libs"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          foreach ($n in "avcodec-62","avformat-62","avutil-60","swresample-6","swscale-9") {
+            $dll = "$bin/$n.dll"
+            if (-not (Test-Path $dll)) { throw "Missing $dll - the FFmpeg version does not match what CMakeLists.txt expects" }
+            $names = dumpbin /exports $dll | ForEach-Object {
+              if ($_ -match '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+(\S+)') { $Matches[1] }
+            }
+            if (-not $names) { throw "Could not read exports of $dll" }
+            @("LIBRARY $n.dll", "EXPORTS") + $names | Set-Content "$out/$n.def"
+            lib /nologo /machine:x64 /def:"$out/$n.def" /out:"$out/$n.lib"
+            if (-not (Test-Path "$out/$n.lib")) { throw "Failed to create $n.lib" }
+          }
+          Get-ChildItem $out -Filter *.lib
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          $py = python -c "import sys; print(sys.executable)"
+          $ws = $env:GITHUB_WORKSPACE -replace '\\','/'
+          cmake -B build -DCMAKE_BUILD_TYPE=Release "-DFFMPEG_ROOT=$ws/deps/ffmpeg" "-DPython_EXECUTABLE=$py" "-DPython3_EXECUTABLE=$py"
+
+      # IMPORTANT: --config Release. With Visual Studio generators,
+      # -DCMAKE_BUILD_TYPE is ignored and the default build is Debug,
+      # which is what produces the MSVCP140D / ucrtbased dependencies.
+      - name: Build (Release)
+        shell: pwsh
+        env:
+          PYTHONPATH: ${{ env.pythonLocation }}
+        run: cmake --build build --config Release --parallel
+
+      - name: Build installer package (Release)
+        shell: pwsh
+        env:
+          PYTHONPATH: ${{ env.pythonLocation }}
+        run: cmake --build build --config Release --target dist
+
+      - name: Verify package
+        shell: pwsh
+        run: |
+          $pkg = "build/dist/DAWvid-install"
+          Get-ChildItem $pkg
+          foreach ($f in "DAWvid.clap","avcodec-62.dll","avformat-62.dll","avutil-60.dll","swresample-6.dll","swscale-9.dll") {
+            if (-not (Test-Path "$pkg/$f")) { throw "Package is missing $f" }
+          }
+          $deps = dumpbin /dependents "$pkg/DAWvid.clap" | Out-String
+          Write-Host $deps
+          if ($deps -match '(?i)(msvcp140d|vcruntime140d|vcruntime140_1d|ucrtbased)') {
+            throw "Debug runtime dependency found - this is still a Debug build"
+          }
+          Write-Host "OK: no debug runtime dependencies"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DAWvid-windows-x64
+          path: build/dist/DAWvid-install/
+          retention-days: 30
