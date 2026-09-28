@@ -1,5 +1,24 @@
 # DAWvid — CLAP Video Player Plugin for Bitwig
 
+
+---
+> ## ⚠️ Unofficial Windows build (fixes "missing dependencies" error)
+>
+> The official Windows release (v1.0.9) was compiled as a **Debug** build, so it needs
+> Visual Studio's debug runtime DLLs (`MSVCP140D.dll`, `VCRUNTIME140D.dll`,
+> `VCRUNTIME140_1D.dll`, `ucrtbased.dll`) and fails to load on normal PCs.
+>
+> This fork changes **no plugin code**. It only builds the same source as a **Release**
+>
+> **Download:** see [Releases](../../releases). Install as described below.
+>
+> This is not affiliated with the original developer. All credit goes to
+> [jonwaterschoot](https://github.com/jonwaterschoot/DAWvid), the original project.
+>
+> 
+---
+
+
 A CLAP plugin that plays a video file in sync with a DAW transport. Includes a companion Bitwig Controller Extension for full two-way sync with Bitwig Studio.
 
 > [!NOTE]
